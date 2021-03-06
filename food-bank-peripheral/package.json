@@ -1,0 +1,14 @@
+{
+  "name": "ble-peripheral-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@abandonware/bleno": "^0.5.1-3"
+  }
+}
