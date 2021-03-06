@@ -12,7 +12,6 @@ import React, {
 import {
   SafeAreaView,
   StyleSheet,
-  ScrollView,
   View,
   Text,
   StatusBar,
@@ -31,7 +30,7 @@ import {
 
 import BleManager from 'react-native-ble-manager';
 const BleManagerModule = NativeModules.BleManager;
-const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+const bleEmitter = new NativeEventEmitter(BleManagerModule);
 
 import { stringToBytes } from "convert-string";
 
@@ -39,17 +38,24 @@ const Buffer = require('buffer/').Buffer;
 
 const App = () => {
   const [isScanning, setIsScanning] = useState(false);
-  const peripherals = new Map();
   const [list, setList] = useState([]);
+  const peripherals = new Map();
   const [testMode, setTestMode] = useState('read')
 
+  // start scannaing peripherals
   const startScan = () => {
+
+    // skip if scan process is currenly happening
     if (isScanning) {
       return
     }
 
-    setList(Array.from([]));
-    BleManager.scan([], 3, true).then((results) => {
+    // first, clear existing peripherals
+    peripherals.clear();
+    setList(Array.from(peripherals.values()));
+
+    // then re-scan it
+    BleManager.scan([], 3, true).then(() => {
       console.log('Scanning...');
       setIsScanning(true);
     }).catch(err => {
@@ -57,152 +63,172 @@ const App = () => {
     });
   }
 
+  // handle discovered peripheral
+  const handleDiscoverPeripheral = (peripheral) => {
+    console.log('Got ble peripheral', peripheral);
+
+    if (!peripheral.name) {
+      peripheral.name = 'NO NAME';
+    }
+
+    peripherals.set(peripheral.id, peripheral);
+    setList(Array.from(peripherals.values()));
+  }
+
+  // handle stop scan event
   const handleStopScan = () => {
     console.log('Scan is stopped');
     setIsScanning(false);
   }
 
+  // handle disconnected peripheral
   const handleDisconnectedPeripheral = (data) => {
+    console.log('Disconnected from ' + data.peripheral);
+
     let peripheral = peripherals.get(data.peripheral);
     if (peripheral) {
       peripheral.connected = false;
       peripherals.set(peripheral.id, peripheral);
       setList(Array.from(peripherals.values()));
     }
-    console.log('Disconnected from ' + data.peripheral);
   }
 
+  // handle update value for characteristic
   const handleUpdateValueForCharacteristic = (data) => {
-    console.log('Received data from ' + data.peripheral + ' characteristic ' + data.characteristic, data.value);
+    console.log(
+      'Received data from: ' + data.peripheral,
+      'Characteristic: ' + data.characteristic,
+      'Data: ' + data.value,
+    );
   }
 
-  const handleDiscoverPeripheral = (peripheral) => {
-    console.log('Got ble peripheral', peripheral);
-    if (!peripheral.name) {
-      peripheral.name = 'NO NAME';
-    }
-    peripherals.set(peripheral.id, peripheral);
-    setList(Array.from(peripherals.values()));
+  // retrieve connected peripherals.
+  // not currenly used
+  const retrieveConnectedPeripheral = () => {
+    BleManager.getConnectedPeripherals([]).then((results) => {
+      peripherals.clear();
+      setList(Array.from(peripherals.values()));
+
+      if (results.length == 0) {
+        console.log('No connected peripherals');
+      }
+
+      for (var i = 0; i < results.length; i++) {
+        var peripheral = results[i];
+        peripheral.connected = true;
+        peripherals.set(peripheral.id, peripheral);
+        setList(Array.from(peripherals.values()));
+      }
+    });
   }
 
-  // const retrieveConnected = () => {
-  //   BleManager.getConnectedPeripherals([]).then((results) => {
-  //     if (results.length == 0) {
-  //       console.log('No connected peripherals')
-  //     }
-  //     console.log(results);
-  //     for (var i = 0; i < results.length; i++) {
-  //       var peripheral = results[i];
-  //       peripheral.connected = true;
-  //       peripherals.set(peripheral.id, peripheral);
-  //       setList(Array.from(peripherals.values()));
-  //     }
-  //   });
-  // }
-
+  // connect to peripheral then test the communication
   const connectAndTestPeripheral = (peripheral) => {
-    if (peripheral){
-      if (peripheral.connected){
-        BleManager.disconnect(peripheral.id);
-      }else{
-        BleManager.connect(peripheral.id).then(() => {
+    if (!peripheral) {
+      return;
+    }
+
+    if (peripheral.connected){
+      BleManager.disconnect(peripheral.id);
+      return;
+    }
+  
+    // connect to selected peripheral
+    BleManager.connect(peripheral.id).then(() => {
+      
+      console.log('Connected to ' + peripheral.id, peripheral);
+
+      // update connected attribute
+      let p = peripherals.get(peripheral.id);
+      if (p) {
+        p.connected = true;
+        peripherals.set(peripheral.id, p);
+        setList(Array.from(peripherals.values()));
+      }
+
+      // retrieve peripheral services info
+      BleManager.retrieveServices(peripheral.id).then((peripheralInfo) => {
+        console.log('Retrieved peripheral services', peripheralInfo);
+
+        // test read current peripheral RSSI value
+        BleManager.readRSSI(peripheral.id).then((rssi) => {
+          console.log('Retrieved actual RSSI value', rssi);
+
+          // update rssi value
           let p = peripherals.get(peripheral.id);
           if (p) {
-            p.connected = true;
+            p.rssi = rssi;
             peripherals.set(peripheral.id, p);
             setList(Array.from(peripherals.values()));
-          }
-          console.log('Connected to ' + peripheral.id, peripheral);
+          }                
+        });                          
+        
+        // test read and write data to peripheral
+        const serviceUUID = '10000000-0000-0000-0000-000000000001';
+        const charasteristicUUID = '20000000-0000-0000-0000-000000000001';
 
-          setTimeout(() => {
+        console.log('peripheral id:', peripheral.id);
+        console.log('service:', serviceUUID);
+        console.log('characteristic:', charasteristicUUID);
 
-            /* Test read current RSSI value */
-            BleManager.retrieveServices(peripheral.id).then((peripheralData) => {
-              console.log('Retrieved peripheral services', peripheralData);
+        switch (testMode) {
 
-              BleManager.readRSSI(peripheral.id).then((rssi) => {
-                console.log('Retrieved actual RSSI value', rssi);
-                let p = peripherals.get(peripheral.id);
-                if (p) {
-                  p.rssi = rssi;
-                  peripherals.set(peripheral.id, p);
-                  setList(Array.from(peripherals.values()));
-                }                
-              });                                          
+          case 'write':
+            // ===== test write data
+            const payload = 'pizza'
+            const payloadBytes = stringToBytes(payload);
+            console.log('payload:', payload);
+
+            BleManager.write(peripheral.id, serviceUUID, charasteristicUUID, payloadBytes).then((res) => {
+              console.log('write response', res);
+              alert(`your "${payload}" is stored to the food bank. Thank you!`)
+            }).catch((error) => {
+              console.log('write err', error);
             });
+            break
 
-            BleManager.retrieveServices(peripheral.id).then((peripheralInfo) => {
-              console.log('peripheral info', peripheralInfo);
-
-              const serviceUUID = '10000000-0000-0000-0000-000000000001';
-              const charasteristicUUID = '20000000-0000-0000-0000-000000000001';
-
-              console.log('peripheral id:', peripheral.id);
-              console.log('service:', serviceUUID);
-              console.log('characteristic:', charasteristicUUID);
-
-              setTimeout(() => {
-
-                switch (testMode) {
-
-                  case 'write':
-                    // ===== test write data
-                    const payload = 'pizza'
-                    const payloadBytes = stringToBytes(payload);
-                    console.log('payload:', payload);
-
-                    BleManager.write(peripheral.id, serviceUUID, charasteristicUUID, payloadBytes).then((res) => {
-                      console.log('write response', res);
-                      alert(`your "${payload}" is stored to the food bank. Thank you!`)
-                    }).catch((error) => {
-                      console.log('write err', error);
-                    });
-                    break
-
-                  case 'read':
-                    // ===== test read data
-                    BleManager.read(peripheral.id, serviceUUID, charasteristicUUID).then((res) => {
-                      console.log('read response', res);
-                      if (res) {
-                        const buffer = Buffer.from(res);
-                        const data = buffer.toString();
-                        console.log('data', data);
-                        alert(`you have stored food "${data}"`)
-                      }
-                    }).catch((error) => {
-                      console.log('read err', error);
-                      alert(error)
-                    });
-                    break
-  
-                  case 'notify':
-                    // ===== test subscribe notification
-                    BleManager.startNotification(peripheral.id, serviceUUID, charasteristicUUID).then((res) => {
-                      console.log('start notification response', res);
-                    })
-                    break
-                  
-                  default:
-                    break
-                }
-              }, 500);
+          case 'read':
+            // ===== test read data
+            BleManager.read(peripheral.id, serviceUUID, charasteristicUUID).then((res) => {
+              console.log('read response', res);
+              if (res) {
+                const buffer = Buffer.from(res);
+                const data = buffer.toString();
+                console.log('data', data);
+                alert(`you have stored food "${data}"`)
+              }
+            }).catch((error) => {
+              console.log('read err', error);
+              alert(error)
             });
+            break
 
-          }, 900);
-        }).catch((error) => {
-          console.log('Connection error', error);
-        });
-      }
-    }
+          case 'notify':
+            // ===== test subscribe notification
+            BleManager.startNotification(peripheral.id, serviceUUID, charasteristicUUID).then((res) => {
+              console.log('start notification response', res);
+            })
+            break
+          
+          default:
+            break
+        }
+      });
+    }).catch((error) => {
+      console.log('Connection error', error);
+    });
   }
 
+  // mount and onmount event handler
   useEffect(() => {
-    BleManager.start({showAlert: false});
+    console.log('Mount');
 
-    bleManagerEmitter.addListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral);
-    bleManagerEmitter.addListener('BleManagerStopScan', handleStopScan );
-    bleManagerEmitter.addListener('BleManagerDisconnectPeripheral', handleDisconnectedPeripheral );
-    bleManagerEmitter.addListener('BleManagerDidUpdateValueForCharacteristic', handleUpdateValueForCharacteristic );
+    BleManager.start({ showAlert: false });
+
+    bleEmitter.addListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral);
+    bleEmitter.addListener('BleManagerStopScan', handleStopScan );
+    bleEmitter.addListener('BleManagerDisconnectPeripheral', handleDisconnectedPeripheral );
+    bleEmitter.addListener('BleManagerDidUpdateValueForCharacteristic', handleUpdateValueForCharacteristic );
 
     if (Platform.OS === 'android' && Platform.Version >= 23) {
       PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION).then((result) => {
@@ -221,24 +247,27 @@ const App = () => {
     }  
     
     return (() => {
-      console.log('unmount');
-      bleManagerEmitter.removeListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral);
-      bleManagerEmitter.removeListener('BleManagerStopScan', handleStopScan );
-      bleManagerEmitter.removeListener('BleManagerDisconnectPeripheral', handleDisconnectedPeripheral );
-      bleManagerEmitter.removeListener('BleManagerDidUpdateValueForCharacteristic', handleUpdateValueForCharacteristic );
+      console.log('Unmount');
+
+      bleEmitter.removeListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral);
+      bleEmitter.removeListener('BleManagerStopScan', handleStopScan );
+      bleEmitter.removeListener('BleManagerDisconnectPeripheral', handleDisconnectedPeripheral );
+      bleEmitter.removeListener('BleManagerDidUpdateValueForCharacteristic', handleUpdateValueForCharacteristic );
     })
   }, []);
 
+  // get advertised peripheral local name (if exists). default to peripheral name
   const getPeripheralName = (item) => {
-    // if (item.advertising) {
-    //   if (item.advertising.localName) {
-    //     return item.advertising.localName
-    //   }
-    // }
+    if (item.advertising) {
+      if (item.advertising.localName) {
+        return item.advertising.localName
+      }
+    }
 
     return item.name
   }
 
+  // render list of devices
   const renderItem = (item) => {
     const color = item.connected ? 'green' : '#fff';
     return (
@@ -255,25 +284,21 @@ const App = () => {
   return (
     <>
       <StatusBar barStyle="dark-content" />
-      <SafeAreaView style={{flex: 1}}>
+      <SafeAreaView style={styles.safeAreaView}>
 
         {/* header */}
         <View style={styles.body}>
           
-          <View style={{margin: 10}}>
+          <View style={styles.scanButton}>
             <Button 
               title={'Scan Bluetooth Devices'}
               onPress={() => startScan() } 
             />            
           </View>
 
-          {/* <View style={{margin: 10}}>
-            <Button title="Retrieve connected peripherals" onPress={() => retrieveConnected() } />
-          </View> */}
-
           {(list.length == 0) &&
-            <View style={{flex:1, margin: 20}}>
-              <Text style={{textAlign: 'center'}}>No peripherals</Text>
+            <View style={styles.noPeripherals}>
+              <Text style={styles.noPeripheralsText}>No peripherals</Text>
             </View>
           }
         </View>
@@ -304,33 +329,21 @@ const App = () => {
 };
 
 const styles = StyleSheet.create({
-  scrollView: {
-    backgroundColor: Colors.lighter,
-  },
-  engine: {
-    position: 'absolute',
-    right: 0,
+  safeAreaView: {
+    flex: 1,
   },
   body: {
     backgroundColor: Colors.white,
   },
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  scanButton: {
+    margin: 10,
   },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: Colors.black,
+  noPeripherals: {
+    flex: 1,
+    margin: 20,
   },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-    color: Colors.dark,
-  },
-  highlight: {
-    fontWeight: '700',
+  noPeripheralsText: {
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',

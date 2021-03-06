@@ -1,11 +1,11 @@
 var util = require('util');
 var bleno = require('@abandonware/bleno');
 
-// setup food bank characteristic
+// prepare food bank characteristic
 function FoodBankCharacteristic() {
   bleno.Characteristic.call(this, {
     uuid: '20000000-0000-0000-0000-000000000001'.replace(/\-/gi, ""),
-    properties: ['read', 'write'],
+    properties: ['read', 'write', 'notify'],
     descriptors: [
       new bleno.Descriptor({
         uuid: '2901',
