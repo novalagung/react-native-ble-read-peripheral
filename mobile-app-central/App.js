@@ -131,9 +131,6 @@ const App = () => {
               });                                          
             });
 
-            // Test using bleno's pizza example
-            // https://github.com/sandeepmistry/bleno/tree/master/examples/pizza
-
             BleManager.retrieveServices(peripheral.id).then((peripheralInfo) => {
               console.log('peripheral info', peripheralInfo);
 
